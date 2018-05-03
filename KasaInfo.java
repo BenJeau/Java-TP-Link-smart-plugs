@@ -1,11 +1,12 @@
 import java.io.IOException;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.UUID;
+
+import javax.net.ssl.HttpsURLConnection;
 
 public class KasaInfo {
 
@@ -33,6 +34,11 @@ public class KasaInfo {
 	 * The credentials to the Kasa account
 	 */
 	private String password, userName;
+
+	/**
+	 * True if your Kasa account is valid
+	 */
+	private boolean validAccount;
 	
 	/**
 	 * Getter for the info about the lights/devices
@@ -41,6 +47,15 @@ public class KasaInfo {
 	 */
 	public String[][] getLights() {
 		return lights;
+	}
+
+	/**
+	 * Getter for validAccount variable
+	 *
+	 * @return a boolean value
+	 */
+	public boolean isValid(){
+		return validAccount;
 	}
 	
 	/**
@@ -75,11 +90,20 @@ public class KasaInfo {
 		this.password = password;
 		this.userName = userName;
 		
+		refresh();
+	}
+
+	/**
+	 * Refreshes the data
+	 */
+	public void refresh() {
 		try {
 			getToken();
-			getInfo();
+			if (validAccount) {
+				getInfo();
+			}
 		} catch (IOException e) {
-			System.out.println("Please have a valid Internet connection and/or access to write to this disk");
+			System.out.println("Problem with refreshing data");
 		}
 	}
 
@@ -93,15 +117,21 @@ public class KasaInfo {
 		String message = "{ \"method\": \"login\", \"params\": { \"appType\": \"Kasa_Android\", \"cloudUserName\": \""
 				+ userName + "\", \"cloudPassword\": \"" + password + "\", \"terminalUUID\": \"" + uuid + "\"} }";
 
-		String output = postHttpRequest(URL, message);
-		token = jsonString(output, "token", output.indexOf("token"), 3, '\"');
+		String output = postHttpsRequest(URL, message);
+
+		if (output.indexOf("token") == -1) {
+			validAccount = false;
+		} else {
+			validAccount = true;
+			token = jsonString(output, "token", output.indexOf("token"), 3, '\"');
+		}
 	}
 
 	/**
 	 * Gets the info from the lights, which includes
 	 */
 	private void getInfo() throws IOException {
-		String output = postHttpRequest(URL + "//?token=" + token, "{\"method\":\"getDeviceList\"}");
+		String output = postHttpsRequest(URL + "//?token=" + token, "{\"method\":\"getDeviceList\"}");
 
 		numOfLights = (output.length() - output.replace("alias", "").length()) / 5;
 
@@ -115,7 +145,7 @@ public class KasaInfo {
 			lights[i][0] = jsonString(output, "alias", indexes[0], 3, '\"');
 			lights[i][2] = jsonString(output, "deviceId", indexes[1], 3, '\"');
 
-			String details = postHttpRequest(URL + "//?token=" + token,
+			String details = postHttpsRequest(URL + "//?token=" + token,
 					"{\"method\":\"passthrough\", \"params\": {\"deviceId\": \"" + lights[i][2]
 							+ "\", \"requestData\": \"{\\\"system\\\":{\\\"get_sysinfo\\\":null},\\\"emeter\\\":{\\\"get_realtime\\\":null}}\" }}");
 			lights[i][1] = jsonString(details, "relay_state", details.indexOf("relay_state"), 3, ',');
@@ -136,7 +166,7 @@ public class KasaInfo {
 		String message = "{\"method\":\"passthrough\", \"params\": {\"deviceId\":\"" + lights[device][2]
 				+ "\", \"requestData\": \"{\\\"system\\\":{\\\"set_relay_state\\\":{\\\"state\\\":" + state
 				+ "}}}\" }}";
-		postHttpRequest(URL + "//?token=" + token, message);
+		postHttpsRequest(URL + "//?token=" + token, message);
 	}
 
 	/**
@@ -178,26 +208,26 @@ public class KasaInfo {
 	 *            JSON body
 	 * @return JSON response
 	 */
-	private String postHttpRequest(String link, String message) throws IOException {
+	private String postHttpsRequest(String link, String message) throws IOException {
 		URL url = new URL(link);
 		URLConnection con = url.openConnection();
-		HttpURLConnection http = (HttpURLConnection) con;
-		http.setRequestMethod("POST");
-		http.setDoOutput(true);
+		HttpsURLConnection https = (HttpsURLConnection) con;
+		https.setRequestMethod("POST");
+		https.setDoOutput(true);
 
 		byte[] out = message.getBytes(StandardCharsets.UTF_8);
 		int length = out.length;
 
-		http.setFixedLengthStreamingMode(length);
-		http.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
-		http.connect();
-		try (OutputStream os = http.getOutputStream()) {
+		https.setFixedLengthStreamingMode(length);
+		https.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+		https.connect();
+		try (OutputStream os = https.getOutputStream()) {
 			os.write(out);
 		}
 
-		char[] output = new char[http.getInputStream().available()];
+		char[] output = new char[https.getInputStream().available()];
 		for (int i = 0; i < output.length; i++) {
-			output[i] = ((char) http.getInputStream().read());
+			output[i] = ((char) https.getInputStream().read());
 		}
 
 		return new String(output);
